@@ -1,0 +1,11 @@
+{"get_A": { "in": "00CB0100", "out": {"cmd": "cb", "data_start":6, "data_end":8, "cmd_type": "get", "data": "00", "error": "None"}},
+ "get_B": { "in": "04CB00020012", "out": {"cmd": "cb", "data_start":8, "data_end":12, "cmd_type": "get", "data": "0012", "error": "None"}},
+ "get_C": { "in": "0201CC000000020012", "out": {"cmd": "cc", "data_start":14, "data_end":18, "cmd_type": "get", "data": "0012", "error": "None"}},
+ "get_D": { "in": "08CB0100", "out": {"cmd": "cb01", "data_start":8, "data_end":8, "cmd_type": "get", "data": "", "error": "None"}},
+ "get_E": { "in": "08CB0201AB", "out": {"cmd": "cb02", "data_start":8, "data_end":10, "cmd_type": "get", "data": "ab", "error": "None"}},
+ "get_F": { "in": "0A01CBCB00000002ABCD", "out": {"cmd": "cbcb", "data_start":16, "data_end":20, "cmd_type": "get", "data": "abcd", "error": "None"}},
+ "set_G": { "in": "09CB0405ABCDEFGH12", "out": {"cmd": "cb04", "data_start":8, "data_end":18, "cmd_type": "set", "data": "abcdefgh12", "error": "None"}},
+ "set_H": { "in": "01CB0100", "out": {"cmd": "cb", "data_start":6, "data_end":8, "cmd_type": "set", "data": "00", "error": "None"}},
+ "set_I": { "in": "05CD0003001223", "out": {"cmd": "cd", "data_start":8, "data_end":14, "cmd_type": "set", "data": "001223", "error": "None"}},
+ "set_J": { "in": "0301CA000000050012223344", "out": {"cmd": "ca", "data_start":14, "data_end":24, "cmd_type": "set", "data": "0012223344", "error": "None"}}
+}
