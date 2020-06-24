@@ -1,35 +1,29 @@
-import binascii
 import socket
 import ssl
 import ipaddress
 import websocket
 
 from urllib.parse import urlparse
-from wolfprot import wolfprot
+from wolfprot import parser
 
 
-class Socket(wolfprot.Parser):
+class Socket(parser.Parser):
     ports = {'ssl': 50917, 'no_ssl': 50915, }
 
     login_level = {'None': 0, 'User': 1, 'Admin': 2,
                    'Annotation': 3, 'Viewer': 4, 'App': 5, }
 
     def __init__(self, ip_addr=None, use_ssl=None, admin_pw='Password'):
-        try:
-            self.login_dict = dict.fromkeys(self.login_level.keys(), '')
-            self.login_dict['Admin'] = admin_pw
-            self.host_ip = None
-            self.sock = None
-            self.ssock = None
-            self.port = None
-            super().__init__()
-            self.reconnect(ip_addr, use_ssl)
-
-        except ValueError as err:
-            print("error: {0}".format(err))
+        self.login_dict = dict.fromkeys(self.login_level.keys(), '')
+        self.login_dict['Admin'] = admin_pw
+        self.host_ip = None
+        self.sock = None
+        self.ssock = None
+        self.port = None
+        super().__init__()
+        self.reconnect(ip_addr, use_ssl)
 
     def __del__(self):
-        print('cleanup')
         self.disconnect()
 
     def disconnect(self):
@@ -45,6 +39,7 @@ class Socket(wolfprot.Parser):
             raise ValueError('unknown host')
             return
 
+        print('reconnect')
         self.disconnect()
 
         if ip_addr:
@@ -66,6 +61,7 @@ class Socket(wolfprot.Parser):
             self.ssock = context.wrap_socket(
                 self.sock, server_hostname=str(self.host_ip))
             self.ssock.settimeout(10)
+        print('connected')
 
     def login(self, level, password=None, admin_pin=None):
         '''
@@ -78,7 +74,8 @@ class Socket(wolfprot.Parser):
         return value: None if success else error string.
         '''
         if self.login_dict.get(level) is None:
-            raise ValueError(f'Login level: {self.login_level.keys()}')
+            raise ValueError(
+                f'Login level: {level} -->{self.login_level.keys()}')
 
         if password is None:
             password = self.login_dict.get(level)
@@ -93,7 +90,6 @@ class Socket(wolfprot.Parser):
             admin_pin_enc = admin_pin.encode('utf-8').hex()
             admin_pin_len = '{:02x}'.format(len(admin_pin))
             to_send += admin_pin_len + admin_pin_enc
-
         self.send_package('set', 0xcb42, to_send)
 
         if self.get_error() is None:
@@ -109,18 +105,17 @@ class Socket(wolfprot.Parser):
         try:
             sock = self.ssock if self.port == self.ports['ssl'] else self.sock
             self.reset_buffers()
-            sock.send(binascii.a2b_hex(data))
-            print(f'send: {data}')
-            while not self.package_complete():
+            sock.send(bytes(data))
+            ret = sock.recv(2048)
+            self.append_buffer(ret)
+            while not self.package_complete() and len(ret) != 0:
                 ret = sock.recv(2048)
-
-                resp = binascii.b2a_hex(ret).decode('utf-8')
-                self.append_buffer(resp)
+                self.append_buffer(ret)
 
             return self.get_data()
 
         except ValueError as err:
-            print("error: {0}".format(err))
+            print("socket tx-rx: error: {0}".format(err))
 
     def send_package_ext_len(self, cmd_type='get', cmd=None, data=None):
         rx = self.generate_package(cmd_type, cmd, data, 0, 1)
@@ -138,24 +133,19 @@ class Socket(wolfprot.Parser):
 class Websocket(Socket):
 
     def __init__(self, uri=None, admin_pw='Password'):
-        try:
-            self.login_dict = dict.fromkeys(self.login_level.keys(), '')
-            self.login_dict['Admin'] = admin_pw
-            self.host_ip = None
-            self.sock = None
-            self.ssock = None
-            self.port = None
-            super(Socket, self).__init__()
-            self.reconnect(uri)
-
-        except ValueError as err:
-            print("error: {0}".format(err))
+        self.login_dict = dict.fromkeys(self.login_level.keys(), '')
+        self.login_dict['Admin'] = admin_pw
+        self.host_ip = None
+        self.sock = None
+        self.ssock = None
+        self.port = None
+        super(Socket, self).__init__()
+        self.reconnect(uri)
 
     def reconnect(self, uri=None):
 
         if uri is None and self.host_ip is None:
             raise ValueError('unknown host')
-            return
 
         if uri:
             self.host_ip = uri
@@ -164,24 +154,23 @@ class Websocket(Socket):
 
         if u.scheme != 'wss' and u.scheme != 'ws':
             raise ValueError('not a websocket url')
-            return
 
         self.disconnect()
         self.sock = websocket.WebSocket(
             sslopt={'check_hostname': False, 'cert_reqs': ssl.VerifyFlags.VERIFY_DEFAULT})
         self.sock.connect(uri)
+        print('connected')
 
     def send_receive(self, data):
         try:
             self.reset_buffers()
-            self.sock.send_binary(binascii.a2b_hex(data))
-            print(f'send: {data}')
-            while not self.package_complete():
+            self.sock.send_binary(bytes(data))
+            ret = self.sock.recv()
+            self.append_buffer(ret)
+            while not self.package_complete() and len(ret) != 0:
                 ret = self.sock.recv()
-                resp = binascii.b2a_hex(ret).decode('utf-8')
-                self.append_buffer(resp)
-
+                self.append_buffer(ret)
             return self.get_data()
 
         except ValueError as err:
-            print("error: {0}".format(err))
+            print("ws tx-rx: error: {0}".format(err))
