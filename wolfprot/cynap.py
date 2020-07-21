@@ -60,7 +60,9 @@ class Cynap:
 
 
 class doc_parser:
-    def __init__(self, filename='wolfprot.json'):
+    def __init__(self, filename=None):
+        if filename is None:
+            filename = 'wolfprot.json'
         with open(filename) as root:
             self.root = json.load(root)
 
@@ -257,6 +259,10 @@ def main():
                         action='store',
                         dest='cmd',
                         help='raw wolfprot command e.g. 09CB020101')
+    parser.add_argument('-f',
+                        action='store',
+                        dest='wp_file',
+                        help='wolfprot.json file location')
     args = parser.parse_args()
 
     try:
@@ -269,17 +275,20 @@ def main():
     apwd = args.apwd if args.apwd else 'Password'
     upwd = args.upwd if args.upwd else None
     level = args.level if args.level else 'Admin'
-
-    print(f'IP: {host_ip}')
-    print(f'PW: {apwd}')
+    wp_file = args.wp_file if args.wp_file else None
 
     try:
-        doc = doc_parser()
+        doc = doc_parser(wp_file)
     except:
-        print('doc file not found')
+        print(f'doc file {wp_file} not found')
         doc = None
 
+    if doc is None and args.cmd is None:
+        return
+
     cb1 = Cynap(host_ip, 1, upwd, level, apwd)
+    print(f'IP: {host_ip}')
+    print(f'PW: {apwd}')
 
     if args.cmd:
         data_ = bytes.fromhex(''.join(''.join(cmd.casefold().split(sep='0x')).split()))
@@ -293,7 +302,7 @@ def main():
                 print('SET (0)')
                 print('GET (1)')
 
-                d = input(' mode: ')
+                d = input(' mode:')
                 get_cmd = True
 
                 if d == 'q':
