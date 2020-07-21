@@ -292,32 +292,51 @@ def main():
                 print('Press q to exit')
                 print('SET (0)')
                 print('GET (1)')
-                d = input('mode: ')
-                if d == 'q':
-                    return
 
+                d = input(' mode: ')
                 get_cmd = True
-                if int(d, 10) == 0:
-                    get_cmd = False
-                cat_list = list()
-                for i, k in enumerate(doc.get_cmd_obj_by_name(None, None, {}, get_cmd)):
-                    cat_list.append(k)
-                    print(f'{k} ({i})')
-                print('\nGET:') if get_cmd else print('\nSET')
-                d = input('category Nr: ')
-                if d == 'q':
-                    return
-                category = cat_list[int(d, 10)]
 
-                cat_list = list()
-                for i, k in enumerate(doc.get_cmd_obj_by_name(category, None, {}, get_cmd)):
-                    cat_list.append(k)
-                    print(f'{k} ({i})')
-                print(f'\n{category}')
-                d = input('sub-category Nr: ')
                 if d == 'q':
                     return
-                sub = cat_list[int(d, 10)]
+                elif d == '0':
+                    get_cmd = False
+
+                print('SEARCH CMD(0)')
+                print('SELECT BY CMD (1)')
+                print('SELECT BY CATEGORY (2)')
+                d = input(' mode: ')
+                if d == '0' or d == '1':
+                    cmd = input('cmd:')
+                    resp = doc.get_cmd_obj_by_cmd(cmd.upper(), get_cmd)
+                    if resp is None:
+                        print(' command unknown')
+                        continue
+                    elif d == '0':
+                        print(f' {resp}')
+                        continue
+                    else:
+                        category = resp['category']
+                        sub = resp['sub-category']
+                elif d == '2':
+                    cat_list = list()
+                    for i, k in enumerate(doc.get_cmd_obj_by_name(None, None, {}, get_cmd)):
+                        cat_list.append(k)
+                        print(f' {k} ({i})')
+                    print('\nGET:') if get_cmd else print('\nSET')
+                    d = input('category Nr: ')
+                    if d == 'q':
+                        return
+                    category = cat_list[int(d, 10)]
+
+                    cat_list = list()
+                    for i, k in enumerate(doc.get_cmd_obj_by_name(category, None, {}, get_cmd)):
+                        cat_list.append(k)
+                        print(f' {k} ({i})')
+                    print(f'\n{category}')
+                    d = input('sub-category Nr: ')
+                    if d == 'q':
+                        return
+                    sub = cat_list[int(d, 10)]
 
                 c = doc.get_cmd_obj_by_name(category, sub, None, get_cmd)
                 var = c['variations']
@@ -328,12 +347,12 @@ def main():
                         id = j.get('parameterID', None)
                         if id:
                             j = doc._get_param_list(id)
-                        print(j['values'])
+                        print(f' {j["values"]}')
 
                         param_len = j['length']
                         comment = j['comment']
                         for a in j['values']:
-                            print(f'{a["value"]} <- {a["comment"]}')
+                            print(f' {a["value"]} <- {a["comment"]}')
 
                         i = input(f'{comment}: ')
                         if d == 'q':
