@@ -302,7 +302,7 @@ def main():
                 print('SET (0)')
                 print('GET (1)')
 
-                d = input(' mode:')
+                d = input(' mode: ')
                 get_cmd = True
 
                 if d == 'q':
@@ -330,10 +330,11 @@ def main():
                         sub = resp['sub-category']
                 elif d == '1':
                     keyword = input('keyword:')
-                    c = doc.get_cmd_obj_by_name(None, None, {}, get_cmd)
+                    c = doc.get_cmd_obj_by_name(None, None, {'command', }, get_cmd)
                     print(keyword)
-                    cat = [(x, y) for x in c for y in c[x] if x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
-                    print(cat)
+                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
+                    for i in cat:
+                        print(i)
                     continue
                 elif d == '3':
                     cat_list = list()
