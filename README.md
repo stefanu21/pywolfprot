@@ -3,11 +3,23 @@
 It's a library to communicate with the WolfVision Cynap product family over socket or websocket
 
 ```Python
-from wolfprot import connection
-from wolfprot import wolfprot_get
 
-#wp = connection.Socket('192.168.100.45', 1)
-wp = connection.Websocket('wss://192.168.100.45/xxx', 'Password')
-wp.login('Admin')
-wolfprot_get.save_preview_pic(wp, '1280', '720', 'pic2.jpeg')
+# examples
+import wolfprot
+
+#change box name
+#wolfprot.json needed 
+host = '192.168.100.45'
+doc_file = wolfprot.cynap.doc_parser()
+boxname = {'Name of box' : 'cynap-stefan'}
+req = doc_file.get_request('Device', 'Boxname', boxname, False)
+cb1 = wolfprot.cynap.Cynap(host, 1)
+print(doc_file.get_response(cb1.raw_package(req.pop())))
+
+#firmware update
+
+host = '192.168.100.45'
+cb1 = wolfprot.cynap.Cynap(host, 1)
+cb1.set_firmware_update('cb1.wgz')
+
 ```
