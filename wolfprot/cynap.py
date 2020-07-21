@@ -311,10 +311,12 @@ def main():
                     get_cmd = False
 
                 print('SEARCH CMD(0)')
-                print('SELECT BY CMD (1)')
-                print('SELECT BY CATEGORY (2)')
+                print('SEARCH KEYWORD (1)')
+                print('SELECT BY CMD (2)')
+                print('SELECT BY CATEGORY (3)')
+
                 d = input(' mode: ')
-                if d == '0' or d == '1':
+                if d == '0' or d == '2':
                     cmd = input('cmd:')
                     resp = doc.get_cmd_obj_by_cmd(cmd.upper(), get_cmd)
                     if resp is None:
@@ -326,7 +328,14 @@ def main():
                     else:
                         category = resp['category']
                         sub = resp['sub-category']
-                elif d == '2':
+                elif d == '1':
+                    keyword = input('keyword:')
+                    c = doc.get_cmd_obj_by_name(None, None, {}, get_cmd)
+                    print(keyword)
+                    cat = [(x, y) for x in c for y in c[x] if x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
+                    print(cat)
+                    continue
+                elif d == '3':
                     cat_list = list()
                     for i, k in enumerate(doc.get_cmd_obj_by_name(None, None, {}, get_cmd)):
                         cat_list.append(k)
