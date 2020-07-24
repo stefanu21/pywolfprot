@@ -205,7 +205,7 @@ class doc_parser:
 #        level = c['userlevel']
         raw = raw_package['data']
         pkg = list()
-        print(f'raw: {raw}')
+        print(f'resp raw: {raw}')
         if len(var) > variant:
             i = var[variant]
 
@@ -213,28 +213,40 @@ class doc_parser:
             param = req['parameters']
             data = dict()
             if(len(param) != 0):
-                n = 0
+                start = 0
+                end = 0
                 prev = None
-                for i in param:
-                    id = i.get('parameterID', None)
-                    if id:
-                        i = self._get_param_list(id)
-                    param_len = i['length']
-                    comment = i['comment']
-                    if param_len:
-                        data[comment] = int(raw[n:n+param_len].hex(), 16)
-                        prev_val = data[comment]
-                        n += param_len
-                    else:
-                        # str_len + str
-                        if prev and prev['comment'].find(comment) != -1:
-                            # prev_val = string length
-                            data[comment] = raw[n:n+prev_val]
-                            n += prev_val
+                # I expect it is a repeating block when the raw package 
+                # size is not finish after first iteration over the parameters
+                while end < len(raw):
+                    for i in param:
+                        if start >= len(raw):
+                            break
+
+                        id = i.get('parameterID', None)
+                        if id:
+                            i = self._get_param_list(id)
+                        param_len = i['length']
+                        comment = i['comment']
+                        print(f'param: {comment}')
+                        print(f'len: {param_len}')
+                        if param_len:
+                            end = start + param_len
+                            data[comment] = int(raw[start:end].hex(), 16)
+                            prev_val = data[comment]
+                            start = end
                         else:
-                            data[comment] = raw
-                    prev = i
-            pkg.append(data)
+                            # str_len + str
+                            if prev and prev['comment'].find(comment) != -1:
+                                # prev_val = string length
+                                end = start + prev_val
+                                data[comment] = raw[start:end]
+                                start = end
+                            else:
+                                data[comment] = raw
+                        prev = i
+                    pkg.append(data)
+
         return category, sub, pkg
 
 
