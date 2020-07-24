@@ -129,12 +129,15 @@ class doc_parser:
             return {'category': item[0], 'sub-category': item[1], 'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
         return None
 
-    def get_request(self, categorie, name, req_param=None, get=True):
+    def get_request(self, categorie, name, variant=0, req_param=None, get=True):
         c = self.get_cmd_obj_by_name(categorie, name, None, get)
         var = c['variations']
         cmd = c['command']
         pkg = list()
-        for i in var:
+        if len(var) <= variant:
+            raise ValueError('variant out of range')
+        else:
+            i = var[variant]
             ext_len = None
             ext_hdr = None
             req = i['request']
@@ -189,7 +192,7 @@ class doc_parser:
             pkg.append(p.generate_package(t, cmd, data, ext_hdr, ext_len))
         return pkg
 
-    def get_response(self, raw_package):
+    def get_response(self, raw_package, variant = 0):
         c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(), get=True if raw_package['type'] == 'GET' else False)
         if c is None:
             return None
@@ -202,7 +205,10 @@ class doc_parser:
 #        level = c['userlevel']
         raw = raw_package['data']
         pkg = list()
-        for i in var:
+        print(f'raw: {raw}')
+        if len(var) > variant:
+            i = var[variant]
+
             req = i['reply']
             param = req['parameters']
             data = dict()
@@ -359,34 +365,39 @@ def main():
 
                 c = doc.get_cmd_obj_by_name(category, sub, None, get_cmd)
                 var = c['variations']
-                for i in var:
-                    attr = dict()
-                    param = i['request']['parameters']
-                    for j in param:
-                        id = j.get('parameterID', None)
-                        if id:
-                            j = doc._get_param_list(id)
-                        print(f' {j["values"]}')
+                attr = dict()
+                var_nr = '0'
+                if len(var) > 1:
+                    var_nr = input(f'variant (max. {len(var)-1}):')
 
-                        param_len = j['length']
-                        comment = j['comment']
-                        for a in j['values']:
-                            print(f' {a["value"]} <- {a["comment"]}')
+                i = var[int(var_nr, 10)]
+                param = i['request']['parameters']
+                for j in param:
+                    id = j.get('parameterID', None)
+                    if id:
+                        j = doc._get_param_list(id)
+                    print(f' {j["values"]}')
 
-                        i = input(f'{comment}: ')
-                        if d == 'q':
-                            return
+                    param_len = j['length']
+                    comment = j['comment']
+                    for a in j['values']:
+                        print(f' {a["value"]} <- {a["comment"]}')
 
-                        if param_len != 0:
-                            attr[comment] = int(i, 16)
-                        else:
-                            attr[comment] = i
+                    i = input(f'{comment}: ')
+                    if d == 'q':
+                        return
 
-                    print(attr)
-                    req = doc.get_request(category, sub, attr, get_cmd)
+                    if param_len != 0:
+                        attr[comment] = int(i, 16)
+                    else:
+                        attr[comment] = i
 
-                    print(req[0].hex())
-                    print(doc.get_response(cb1.raw_package(req[0])))
+                print(attr)
+                req = doc.get_request(category, sub, int(var_nr, 10), attr, get_cmd)
+
+                print(req[0].hex())
+                raw = cb1.raw_package(req[0])
+                print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
     return
 
 
