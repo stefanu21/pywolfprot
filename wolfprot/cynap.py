@@ -9,10 +9,10 @@ from pathlib import Path
 
 
 class Cynap:
-    def __init__(self, host, use_ssl=True, pw=None, level='Admin', admin_pw='Password', admin_pin=None):
+    def __init__(self, host: str, use_ssl: bool = True, pw: str = None, level: str = 'Admin', admin_pw: str = 'Password', admin_pin: int = None) -> object:
         try:
             self.wv = connection.Websocket(host, admin_pw)
-        except:
+        except (ValueError, TimeoutError) as err:
             self.wv = connection.Socket(host, use_ssl, admin_pw)
 
         if level == 'Admin':
@@ -130,6 +130,12 @@ class doc_parser:
         return None
 
     def get_request(self, categorie, name, variant=0, req_param=None, get=True):
+        """
+
+        Returns
+        -------
+        object
+        """
         c = self.get_cmd_obj_by_name(categorie, name, None, get)
         var = c['variations']
         cmd = c['command']
@@ -192,7 +198,7 @@ class doc_parser:
             pkg.append(p.generate_package(t, cmd, data, ext_hdr, ext_len))
         return pkg
 
-    def get_response(self, raw_package, variant = 0):
+    def get_response(self, raw_package, variant=0):
         c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(), get=True if raw_package['type'] == 'GET' else False)
         if c is None:
             return None
@@ -212,24 +218,26 @@ class doc_parser:
             req = i['reply']
             param = req['parameters']
             data = dict()
-            if(len(param) != 0):
+            if len(param) != 0:
                 start = 0
                 end = 0
                 prev = None
                 # I expect it is a repeating block when the raw package 
                 # size is not finish after first iteration over the parameters
                 while end < len(raw):
+        #            prev_val = 0
+#                    print(f'end: {end}, rawlen: {len(raw)}')
+
                     for i in param:
                         if start >= len(raw):
                             break
-
                         id = i.get('parameterID', None)
                         if id:
                             i = self._get_param_list(id)
                         param_len = i['length']
                         comment = i['comment']
-                        print(f'param: {comment}')
-                        print(f'len: {param_len}')
+#                        print(f'param: {comment}')
+#                        print(f'len: {param_len}')
                         if param_len:
                             end = start + param_len
                             data[comment] = int(raw[start:end].hex(), 16)
@@ -244,6 +252,7 @@ class doc_parser:
                                 start = end
                             else:
                                 data[comment] = raw
+                                end = len(raw)
                         prev = i
                     pkg.append(data)
 

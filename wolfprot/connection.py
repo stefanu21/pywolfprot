@@ -51,17 +51,20 @@ class Socket(parser.Parser):
             self.port = self.ports['no_ssl']
 
         print(self.port)
-        self.sock = socket.create_connection(
-            (str(self.host_ip), self.port), timeout=10)
+        try:
+            self.sock = socket.create_connection(
+                (str(self.host_ip), self.port), timeout=10)
 
-        if self.port == self.ports['ssl']:
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.VerifyFlags.VERIFY_DEFAULT
-            self.ssock = context.wrap_socket(
-                self.sock, server_hostname=str(self.host_ip))
-            self.ssock.settimeout(10)
-        print('connected')
+            if self.port == self.ports['ssl']:
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.VerifyFlags.VERIFY_DEFAULT
+                self.ssock = context.wrap_socket(
+                    self.sock, server_hostname=str(self.host_ip))
+                self.ssock.settimeout(10)
+            print('connected')
+        except socket.timeout as err:
+            raise TimeoutError(err)
 
     def login(self, level, password=None, admin_pin=None):
         '''
@@ -111,11 +114,9 @@ class Socket(parser.Parser):
             while not self.package_complete() and len(ret) != 0:
                 ret = sock.recv(2048)
                 self.append_buffer(ret)
-
             return self.get_data()
-
-        except ValueError as err:
-            print("socket tx-rx: error: {0}".format(err))
+        except socket.timeout as err:
+            raise TimeoutError(err)
 
     def send_package_ext_len(self, cmd_type='get', cmd=None, data=None):
         rx = self.generate_package(cmd_type, cmd, data, 0, 1)
