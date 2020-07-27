@@ -9,11 +9,15 @@ from pathlib import Path
 
 
 class Cynap:
-    def __init__(self, host: str, use_ssl: bool = True, pw: str = None, level: str = 'Admin', admin_pw: str = 'Password', admin_pin: int = None) -> object:
+    def __init__(self, host: str, use_ssl: bool = True, pw: str = None, level: str = 'Admin',
+                 admin_pw: str = 'Password', admin_pin: int = None) -> object:
         try:
             self.wv = connection.Websocket(host, admin_pw)
+
         except (ValueError, TimeoutError) as err:
             self.wv = connection.Socket(host, use_ssl, admin_pw)
+
+        self.wv.connect()
 
         if level == 'Admin':
             self.wv.login(level, admin_pw, admin_pin)
@@ -122,11 +126,12 @@ class doc_parser:
         return self._collect_attr(c[name], attr)
 
     def get_cmd_obj_by_cmd(self, cmd, get=True):
-        c = self.get_cmd_obj_by_name(None, None, ('command', ), get)
+        c = self.get_cmd_obj_by_name(None, None, ('command',), get)
         cat = [(x, y) for x in c for y in c[x] if c[x][y]['command'] == cmd]
         if len(cat):
             item = cat.pop()
-            return {'category': item[0], 'sub-category': item[1], 'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
+            return {'category': item[0], 'sub-category': item[1],
+                    'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
         return None
 
     def get_request(self, categorie, name, variant=0, req_param=None, get=True):
@@ -154,7 +159,7 @@ class doc_parser:
                 ext_hdr = 1
 
             param = req['parameters']
-            if(len(param) == 0):
+            if len(param) == 0:
                 data = None
             else:
                 data = bytes()
@@ -199,7 +204,8 @@ class doc_parser:
         return pkg
 
     def get_response(self, raw_package, variant=0):
-        c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(), get=True if raw_package['type'] == 'GET' else False)
+        c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(),
+                                    get=True if raw_package['type'] == 'GET' else False)
         if c is None:
             return None
         category = c['category']
@@ -292,12 +298,6 @@ def main():
                         help='wolfprot.json file location')
     args = parser.parse_args()
 
-    try:
-        host_ip = ipaddress.ip_address(args.host)
-    except ValueError as err:
-        print("error: {0}".format(err))
-        return
-
     cmd = args.cmd
     apwd = args.apwd if args.apwd else 'Password'
     upwd = args.upwd if args.upwd else None
@@ -313,8 +313,8 @@ def main():
     if doc is None and args.cmd is None:
         return
 
-    cb1 = Cynap(host_ip, 1, upwd, level, apwd)
-    print(f'IP: {host_ip}')
+    cb1 = Cynap(args.host, 1, upwd, level, apwd)
+    print(f'HOST: {args.host}')
     print(f'PW: {apwd}')
 
     if args.cmd:
@@ -359,7 +359,8 @@ def main():
                     keyword = input('keyword:')
                     c = doc.get_cmd_obj_by_name(None, None, {'command', }, get_cmd)
                     print(keyword)
-                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
+                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if
+                           x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
                     for i in cat:
                         print(i)
                     continue
@@ -389,7 +390,7 @@ def main():
                 attr = dict()
                 var_nr = '0'
                 if len(var) > 1:
-                    var_nr = input(f'variant (max. {len(var)-1}):')
+                    var_nr = input(f'variant (max. {len(var) - 1}):')
 
                 i = var[int(var_nr, 10)]
                 param = i['request']['parameters']

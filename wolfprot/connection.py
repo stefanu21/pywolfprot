@@ -10,63 +10,55 @@ from wolfprot import parser
 class Socket(parser.Parser):
     ports = {'ssl': 50917, 'no_ssl': 50915, }
 
-    login_level = {'None': 0, 'User': 1, 'Admin': 2,
-                   'Annotation': 3, 'Viewer': 4, 'App': 5, }
+    login_level = ('None',
+                   'User',
+                   'Admin',
+                   'Annotation',
+                   'Viewer',
+                   'App')
 
-    def __init__(self, ip_addr=None, use_ssl=None, admin_pw='Password'):
-        self.login_dict = dict.fromkeys(self.login_level.keys(), '')
+    def __init__(self, host: str = '', use_ssl: bool = True, admin_pw: str = 'Password'):
+        self.login_dict = dict.fromkeys(self.login_level)
         self.login_dict['Admin'] = admin_pw
-        self.host_ip = None
+        self.host = host
         self.sock = None
         self.ssock = None
-        self.port = None
+        self.port = self.ports['ssl'] if use_ssl is True else self.ports['no_ssl']
         super().__init__()
-        self.reconnect(ip_addr, use_ssl)
 
     def __del__(self):
+        print('delete object')
         self.disconnect()
 
     def disconnect(self):
+        print('disconnect')
         if self.sock:
             self.sock.close()
 
         if self.ssock:
             self.ssock.close()
 
-    def reconnect(self, ip_addr=None, use_ssl=None):
+    def connect(self):
 
-        if ip_addr is None and self.host_ip is None:
-            raise ValueError('unknown host')
-            return
-
-        print('reconnect')
+        ip_addr = str(ipaddress.ip_address(self.host))
         self.disconnect()
 
-        if ip_addr:
-            self.host_ip = ipaddress.ip_address(ip_addr)
-
-        if use_ssl:
-            self.port = self.ports['ssl']
-        else:
-            self.port = self.ports['no_ssl']
-
-        print(self.port)
         try:
             self.sock = socket.create_connection(
-                (str(self.host_ip), self.port), timeout=10)
+                (ip_addr, self.port), timeout=10)
 
             if self.port == self.ports['ssl']:
                 context = ssl.create_default_context()
                 context.check_hostname = False
                 context.verify_mode = ssl.VerifyFlags.VERIFY_DEFAULT
                 self.ssock = context.wrap_socket(
-                    self.sock, server_hostname=str(self.host_ip))
+                    self.sock, server_hostname=ip_addr)
                 self.ssock.settimeout(10)
             print('connected')
         except socket.timeout as err:
             raise TimeoutError(err)
 
-    def login(self, level, password=None, admin_pin=None):
+    def login(self, level: str = 'Admin', password=None, admin_pin: int = None):
         '''
         login to cynap
         level = 'None', 'User', 'Admin', 'Annotation', 'Viewer App'
@@ -76,18 +68,18 @@ class Socket(parser.Parser):
 
         return value: None if success else error string.
         '''
-        if self.login_dict.get(level) is None:
-            raise ValueError(
-                f'Login level: {level} -->{self.login_level.keys()}')
 
-        if password is None:
-            password = self.login_dict.get(level)
+        if level in self.login_dict:
+            self.login_dict[level] = password
+        else:
+            raise KeyError(
+                f'Login level: {level} -->{self.login_dict.keys()}')
 
-        pw_enc = password.encode('utf-8').hex()
-        pw_len = '{:02x}'.format(len(password))
-        login_levle_val = '{:02x}'.format(int(self.login_level.get(level)))
+        pw_enc = self.login_dict[level].encode('utf-8').hex()
+        pw_len = '{:02x}'.format(len(self.login_dict[level]))
+        login_level_val = '{:02x}'.format(int(self.login_level.index(level)))
 
-        to_send = login_levle_val + pw_len + pw_enc
+        to_send = login_level_val + pw_len + pw_enc
 
         if admin_pin:
             admin_pin_enc = admin_pin.encode('utf-8').hex()
@@ -132,34 +124,18 @@ class Socket(parser.Parser):
 
 
 class Websocket(Socket):
-
+#TODO we need a ping pong for websocket
     def __init__(self, uri=None, admin_pw='Password'):
-        self.login_dict = dict.fromkeys(self.login_level.keys(), '')
-        self.login_dict['Admin'] = admin_pw
-        self.host_ip = None
-        self.sock = None
-        self.ssock = None
-        self.port = None
-        super(Socket, self).__init__()
-        self.reconnect(uri)
-
-    def reconnect(self, uri=None):
-
-        if uri is None and self.host_ip is None:
-            raise ValueError('unknown host')
-
-        if uri:
-            self.host_ip = uri
-
+        super().__init__(uri, True, admin_pw)
         u = urlparse(uri)
-
         if u.scheme != 'wss' and u.scheme != 'ws':
             raise ValueError('not a websocket url')
 
-        self.disconnect()
+    def connect(self):
+        super().disconnect()
         self.sock = websocket.WebSocket(
             sslopt={'check_hostname': False, 'cert_reqs': ssl.VerifyFlags.VERIFY_DEFAULT})
-        self.sock.connect(uri)
+        self.sock.connect(self.host)
         print('connected')
 
     def send_receive(self, data):
