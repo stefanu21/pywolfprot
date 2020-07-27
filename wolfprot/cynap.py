@@ -54,7 +54,6 @@ class Cynap:
     def get_preview_pic(self, width, height):
         data = self.wv.send_package('get', 0xcb02, '{:04x}'.format(
             int(width)) + '{:04x}'.format(int(height)) + '0000')
-        print(f'error: {self.wv.get_error()}')
         return data[8:]
 
     def get_save_preview_pic(self, width, height, file):
@@ -103,13 +102,17 @@ class doc_parser:
                 d = data
         return d
 
-    def _get_param_list(self, id):
+    def _get_param_list(self, value=None):
         p = self.root['parameterlist']
+        attr = 'idx' if type(value) is int else 'name'
         for i in p:
-            if i['idx'] == id:
+            if i[attr] == value:
                 i['comment'] = i['name']
                 return i
         return None
+
+    def get_window_types(self):
+        return self._get_param_list('Window type')
 
     def get_cmd_obj_by_name(self, categorie=None, name=None, attr=None, get=True):
         t = 'SET' if get is False else 'GET'
@@ -213,55 +216,85 @@ class doc_parser:
         c = c['obj']
 
         var = c['variations']
-#        cmd = c['command']
+        cmd = c['command']
 #        level = c['userlevel']
         raw = raw_package['data']
         pkg = list()
-        print(f'resp raw: {raw}')
+#        print(f'resp raw: {raw}')
         if len(var) > variant:
             i = var[variant]
 
             req = i['reply']
             param = req['parameters']
-            data = dict()
+
             if len(param) != 0:
                 start = 0
                 end = 0
-                prev = None
-                # I expect it is a repeating block when the raw package 
+
+                rm_param = list()
+                data_common = dict()
+                if cmd == 'CBBA':  # Window 2 command
+                    f = ('Window reference width', 'Window reference height')
+                    rm_param = [i for i in param if i['comment'] in f]
+                    print(raw[start:])
+
+                for i in rm_param:
+                    param_len = i['length']
+                    comment = i['comment']
+                    if param_len:
+                        end = start + param_len
+                        data_common[comment] = int(raw[start:end].hex(), 16)
+#                        print(f'{comment}: {data_common[comment]}')
+                        prev_val = data_common[comment]
+                        start = end
+
+                if len(data_common):
+                    pkg.append(data_common)
+
+                # I expect it is a repeating block when the raw package
                 # size is not finish after first iteration over the parameters
                 while end < len(raw):
-        #            prev_val = 0
 #                    print(f'end: {end}, rawlen: {len(raw)}')
-
+                    prev = None
+                    data = dict()
                     for i in param:
+
+                        if i in rm_param:
+                            continue
+
                         if start >= len(raw):
+                            # add string value when previous value was the length value with data value zero
+                            if prev and prev['comment'].find(comment) != -1 and prev_val == 0:
+                                comment = i['comment']
+                                data[comment] = bytearray()
                             break
-                        id = i.get('parameterID', None)
-                        if id:
-                            i = self._get_param_list(id)
+                        param_id = i.get('parameterID', None)
+                        if param_id:
+                            i = self._get_param_list(param_id)
                         param_len = i['length']
                         comment = i['comment']
-#                        print(f'param: {comment}')
-#                        print(f'len: {param_len}')
                         if param_len:
                             end = start + param_len
                             data[comment] = int(raw[start:end].hex(), 16)
                             prev_val = data[comment]
+#                            print(f'1:{comment}: {prev_val} len: {param_len}')
                             start = end
                         else:
                             # str_len + str
                             if prev and prev['comment'].find(comment) != -1:
                                 # prev_val = string length
                                 end = start + prev_val
+#                                print(f'start: {start}, end: {end}')
                                 data[comment] = raw[start:end]
+#                                print(f'prev: {prev["comment"]}: {prev_val}')
+#                                print(f'2:{comment}: {data[comment]} len: {param_len}')
                                 start = end
                             else:
                                 data[comment] = raw
+#                                print(f'3:{comment}: {data[comment]} len: {param_len}')
                                 end = len(raw)
                         prev = i
                     pkg.append(data)
-
         return category, sub, pkg
 
 
@@ -416,10 +449,13 @@ def main():
 
                 print(attr)
                 req = doc.get_request(category, sub, int(var_nr, 10), attr, get_cmd)
-
                 print(req[0].hex())
                 raw = cb1.raw_package(req[0])
-                print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
+                err_status = cb1.get_error_status()
+                if err_status:
+                    print(f'error status: {err_status}')
+                else:
+                    print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
     return
 
 

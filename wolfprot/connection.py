@@ -27,7 +27,7 @@ class Socket(parser.Parser):
         super().__init__()
 
     def __del__(self):
-        print('delete object')
+#        print('delete object')
         self.disconnect()
 
     def disconnect(self):
