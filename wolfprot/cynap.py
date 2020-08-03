@@ -9,11 +9,15 @@ from pathlib import Path
 
 
 class Cynap:
-    def __init__(self, host, use_ssl=True, pw=None, level='Admin', admin_pw='Password', admin_pin=None):
+    def __init__(self, host: str, use_ssl: bool = True, pw: str = None, level: str = 'Admin',
+                 admin_pw: str = 'Password', admin_pin: int = None) -> object:
         try:
             self.wv = connection.Websocket(host, admin_pw)
-        except:
+
+        except (ValueError, TimeoutError) as err:
             self.wv = connection.Socket(host, use_ssl, admin_pw)
+
+        self.wv.connect()
 
         if level == 'Admin':
             self.wv.login(level, admin_pw, admin_pin)
@@ -50,7 +54,6 @@ class Cynap:
     def get_preview_pic(self, width, height):
         data = self.wv.send_package('get', 0xcb02, '{:04x}'.format(
             int(width)) + '{:04x}'.format(int(height)) + '0000')
-        print(f'error: {self.wv.get_error()}')
         return data[8:]
 
     def get_save_preview_pic(self, width, height, file):
@@ -99,13 +102,17 @@ class doc_parser:
                 d = data
         return d
 
-    def _get_param_list(self, id):
+    def _get_param_list(self, value=None):
         p = self.root['parameterlist']
+        attr = 'idx' if type(value) is int else 'name'
         for i in p:
-            if i['idx'] == id:
+            if i[attr] == value:
                 i['comment'] = i['name']
                 return i
         return None
+
+    def get_window_types(self):
+        return self._get_param_list('Window type')
 
     def get_cmd_obj_by_name(self, categorie=None, name=None, attr=None, get=True):
         t = 'SET' if get is False else 'GET'
@@ -122,14 +129,21 @@ class doc_parser:
         return self._collect_attr(c[name], attr)
 
     def get_cmd_obj_by_cmd(self, cmd, get=True):
-        c = self.get_cmd_obj_by_name(None, None, ('command', ), get)
+        c = self.get_cmd_obj_by_name(None, None, ('command',), get)
         cat = [(x, y) for x in c for y in c[x] if c[x][y]['command'] == cmd]
         if len(cat):
             item = cat.pop()
-            return {'category': item[0], 'sub-category': item[1], 'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
+            return {'category': item[0], 'sub-category': item[1],
+                    'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
         return None
 
     def get_request(self, categorie, name, variant=0, req_param=None, get=True):
+        """
+
+        Returns
+        -------
+        object
+        """
         c = self.get_cmd_obj_by_name(categorie, name, None, get)
         var = c['variations']
         cmd = c['command']
@@ -148,7 +162,7 @@ class doc_parser:
                 ext_hdr = 1
 
             param = req['parameters']
-            if(len(param) == 0):
+            if len(param) == 0:
                 data = None
             else:
                 data = bytes()
@@ -192,8 +206,9 @@ class doc_parser:
             pkg.append(p.generate_package(t, cmd, data, ext_hdr, ext_len))
         return pkg
 
-    def get_response(self, raw_package, variant = 0):
-        c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(), get=True if raw_package['type'] == 'GET' else False)
+    def get_response(self, raw_package, variant=0):
+        c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(),
+                                    get=True if raw_package['type'] == 'GET' else False)
         if c is None:
             return None
         category = c['category']
@@ -201,52 +216,85 @@ class doc_parser:
         c = c['obj']
 
         var = c['variations']
-#        cmd = c['command']
+        cmd = c['command']
 #        level = c['userlevel']
         raw = raw_package['data']
         pkg = list()
-        print(f'resp raw: {raw}')
+#        print(f'resp raw: {raw}')
         if len(var) > variant:
             i = var[variant]
 
             req = i['reply']
             param = req['parameters']
-            data = dict()
-            if(len(param) != 0):
+
+            if len(param) != 0:
                 start = 0
                 end = 0
-                prev = None
-                # I expect it is a repeating block when the raw package 
+
+                rm_param = list()
+                data_common = dict()
+                if cmd == 'CBBA':  # Window 2 command
+                    f = ('Window reference width', 'Window reference height')
+                    rm_param = [i for i in param if i['comment'] in f]
+                    print(raw[start:])
+
+                for i in rm_param:
+                    param_len = i['length']
+                    comment = i['comment']
+                    if param_len:
+                        end = start + param_len
+                        data_common[comment] = int(raw[start:end].hex(), 16)
+#                        print(f'{comment}: {data_common[comment]}')
+                        prev_val = data_common[comment]
+                        start = end
+
+                if len(data_common):
+                    pkg.append(data_common)
+
+                # I expect it is a repeating block when the raw package
                 # size is not finish after first iteration over the parameters
                 while end < len(raw):
+#                    print(f'end: {end}, rawlen: {len(raw)}')
+                    prev = None
+                    data = dict()
                     for i in param:
-                        if start >= len(raw):
-                            break
 
-                        id = i.get('parameterID', None)
-                        if id:
-                            i = self._get_param_list(id)
+                        if i in rm_param:
+                            continue
+
+                        if start >= len(raw):
+                            # add string value when previous value was the length value with data value zero
+                            if prev and prev['comment'].find(comment) != -1 and prev_val == 0:
+                                comment = i['comment']
+                                data[comment] = bytearray()
+                            break
+                        param_id = i.get('parameterID', None)
+                        if param_id:
+                            i = self._get_param_list(param_id)
                         param_len = i['length']
                         comment = i['comment']
-                        print(f'param: {comment}')
-                        print(f'len: {param_len}')
                         if param_len:
                             end = start + param_len
                             data[comment] = int(raw[start:end].hex(), 16)
                             prev_val = data[comment]
+#                            print(f'1:{comment}: {prev_val} len: {param_len}')
                             start = end
                         else:
                             # str_len + str
                             if prev and prev['comment'].find(comment) != -1:
                                 # prev_val = string length
                                 end = start + prev_val
+#                                print(f'start: {start}, end: {end}')
                                 data[comment] = raw[start:end]
+#                                print(f'prev: {prev["comment"]}: {prev_val}')
+#                                print(f'2:{comment}: {data[comment]} len: {param_len}')
                                 start = end
                             else:
                                 data[comment] = raw
+#                                print(f'3:{comment}: {data[comment]} len: {param_len}')
+                                end = len(raw)
                         prev = i
                     pkg.append(data)
-
         return category, sub, pkg
 
 
@@ -283,12 +331,6 @@ def main():
                         help='wolfprot.json file location')
     args = parser.parse_args()
 
-    try:
-        host_ip = ipaddress.ip_address(args.host)
-    except ValueError as err:
-        print("error: {0}".format(err))
-        return
-
     cmd = args.cmd
     apwd = args.apwd if args.apwd else 'Password'
     upwd = args.upwd if args.upwd else None
@@ -304,8 +346,8 @@ def main():
     if doc is None and args.cmd is None:
         return
 
-    cb1 = Cynap(host_ip, 1, upwd, level, apwd)
-    print(f'IP: {host_ip}')
+    cb1 = Cynap(args.host, 1, upwd, level, apwd)
+    print(f'HOST: {args.host}')
     print(f'PW: {apwd}')
 
     if args.cmd:
@@ -350,7 +392,8 @@ def main():
                     keyword = input('keyword:')
                     c = doc.get_cmd_obj_by_name(None, None, {'command', }, get_cmd)
                     print(keyword)
-                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
+                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if
+                           x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
                     for i in cat:
                         print(i)
                     continue
@@ -380,7 +423,7 @@ def main():
                 attr = dict()
                 var_nr = '0'
                 if len(var) > 1:
-                    var_nr = input(f'variant (max. {len(var)-1}):')
+                    var_nr = input(f'variant (max. {len(var) - 1}):')
 
                 i = var[int(var_nr, 10)]
                 param = i['request']['parameters']
@@ -406,10 +449,13 @@ def main():
 
                 print(attr)
                 req = doc.get_request(category, sub, int(var_nr, 10), attr, get_cmd)
-
                 print(req[0].hex())
                 raw = cb1.raw_package(req[0])
-                print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
+                err_status = cb1.get_error_status()
+                if err_status:
+                    print(f'error status: {err_status}')
+                else:
+                    print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
     return
 
 
