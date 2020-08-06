@@ -455,7 +455,7 @@ def main():
                 if err_status:
                     print(f'error status: {err_status}')
                 else:
-                    print(f'resp: {doc.get_response(cb1.raw_package(req[0]), int(var_nr, 10))}')
+                    print(f'resp: {doc.get_response(raw, int(var_nr, 10))}')
     return
 
 
