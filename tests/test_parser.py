@@ -2,7 +2,7 @@ import json
 
 from wolfprot import parser
 
-TEST_DATA = 'test_data/test_data.json'
+TEST_DATA = 'tests/test_data.json'
 
 
 def read_test_data(data=TEST_DATA):

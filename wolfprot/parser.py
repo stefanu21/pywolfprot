@@ -166,6 +166,20 @@ class Parser:
             return None
         return self.error_dict[self.get_data().hex()]
 
+    def generate_header_information(self, cmd_type, cmd, ext_hdr=None, ext_len=None, error=None):
+        hdr = self.generate_package(cmd_type, cmd, b'', ext_hdr, ext_len, error)
+        if ext_len:
+            param_len_len = 2
+        elif ext_hdr:
+            param_len_len = 4
+        else:
+            param_len_len = 1
+
+        header_len = 2 if ext_hdr else 1
+        header = hdr[0:header_len].hex()
+        return header, header_len, param_len_len
+
+
     def generate_package(self, cmd_type, cmd, data, ext_hdr=None, ext_len=None, error=None):
         """
         return bytearray

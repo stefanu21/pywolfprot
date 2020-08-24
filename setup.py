@@ -9,14 +9,15 @@ def readme():
 
 
 setup(name='pywolfprot',
-      version='0.1',
+      version='0.2',
       description='send and receive wolfvision wolfprot commands',
-      long_description_content_type='text/markdown',
       long_description=readme(),
       classifiers=[
           'Development Status :: 3 - Alpha',
+          'License :: OSI Approved :: GPLv2 License',
           'Programming Language :: Python :: 3',
           'Intended Audience :: Developers',
+          'Topic :: Software Development :: Build Tools',
       ],
       keywords='Wolfvision wolfprot cynap',
       url='https://github.com/stefanu21/pywolfprot',

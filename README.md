@@ -2,18 +2,18 @@
 
 It's a library to communicate with the WolfVision Cynap product family over socket or websocket
 
-## Examples
-```python
+```Python
+
+# examples
 import wolfprot
 
 #change box name
 #wolfprot.json needed 
 host = '192.168.100.45'
-doc_file = wolfprot.cynap.doc_parser()
 boxname = {'Name of box' : 'cynap-stefan'}
-req = doc_file.get_request('Device', 'Boxname', 0, boxname, False)
 cb1 = wolfprot.cynap.Cynap(host, 1)
-print(doc_file.get_response(cb1.raw_package(req.pop())))
+req = cb1.send_package('Device', 'Boxname', 0, boxname, 'GET', True)
+print(req)
 
 #firmware update
 

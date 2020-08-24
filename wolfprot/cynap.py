@@ -1,301 +1,92 @@
-import json
-import ipaddress
 import argparse
 from wolfprot import connection
-from wolfprot import parser
+from wolfprot import wolfdoc
 from textwrap import dedent
-from functools import partial
-from pathlib import Path
 
 
 class Cynap:
-    def __init__(self, host: str, use_ssl: bool = True, pw: str = None, level: str = 'Admin',
-                 admin_pw: str = 'Password', admin_pin: int = None) -> object:
+    def __init__(self, host: str, use_ssl: bool = True, doc_file: str = None, pw: str = 'Password',
+                 access_level: str = 'Admin', pin: str = '') -> object:
+
+        if doc_file:
+            self.doc = wolfdoc.Wolfdoc(doc_file)
+            self.win_types = [(i['comment'], i['value']) for i in self.doc.get_window_types()['values']]
+        else:
+            self.doc = None
+            self.win_types = None
+
+        self.host = host
+        self.ssl = use_ssl
+        self.pw = pw
+        self.access_level = access_level
+        self.pin = pin
+        self.connection = None
+
+    def connect(self):
+        if connection.Websocket.is_websocket_url(self.host):
+            self.connection = connection.Websocket(self.host)
+        else:
+            self.connection = connection.Socket(self.host, self.ssl)
         try:
-            self.wv = connection.Websocket(host, admin_pw)
+            self.connection.connect()
+            self.login(self.access_level, self.pw, self.pin)
 
-        except (ValueError, TimeoutError) as err:
-            self.wv = connection.Socket(host, use_ssl, admin_pw)
+        except (ConnectionRefusedError, TimeoutError) as err:
+            print(f'error: {err}')
+            return False
+        return True
 
-        self.wv.connect()
+    def send_package(self, section: str, name: str, variant: int = 0, param=None, direction: str = 'GET', return_raw: bool = True) -> dict:
+        if self.connection is None:
+            return
 
-        if level == 'Admin':
-            self.wv.login(level, admin_pw, admin_pin)
-        else:
-            self.wv.login(level, pw)
+        data = self.doc.generate_get_request(section, name, variant, param, direction)
+        if return_raw:
+            return self.raw_package(data)
 
-    def raw_package(self, data):
-        d = self.wv.send_receive(data)
-        h = self.wv.get_header().hex()
-        t, cmd, start, stop = self.wv.parse_header()
+        return self.doc.generate_get_response(self.raw_package(data), variant)
+
+    def raw_package(self, data: bytearray) -> dict:
+        if self.connection is None:
+            return
+
+        d = self.connection.send_receive(data)
+        h = self.connection.get_header().hex()
+        t, cmd, start, stop = self.connection.parse_header()
         e = self.get_error_status()
-        return {'type': t, 'cmd': cmd, 'header': h, 'data': d, 'error': e}
+        res = {'type': t, 'cmd': cmd, 'header': h, 'data': d, 'error': e}
+        return res
 
-    def get_error_status(self):
-        return self.wv.get_error()
+    def get_error_status(self) -> str:
+        if self.connection is None:
+            return
+        return self.connection.get_error()
 
-    def set_firmware_update(self, file):
-        p = Path(file)
-        if p.exists() is False:
-            raise ValueError(f'file: {file} doesn\'t exit')
-
-        self.wv.send_package('set', 0xcb2f, '{:08x}'.format(p.stat().st_size))
-
-        with open(file, 'rb') as f:
-            for block in iter(partial(f.read, 128 * 1024), b''):
-                self.wv.send_package_ext_hdr('set', 0xcb30, bytearray(block))
-                if self.wv.package_complete() is not True or self.wv.get_error() is not None:
-                    err = self.wv.get_error()
-                    self.wv.send_package('set', 0xcb31)
-                    raise ValueError(f'error upload firmware {err}')
-
-        self.wv.send_package('set', 0xcb31)
-
-    def get_preview_pic(self, width, height):
-        data = self.wv.send_package('get', 0xcb02, '{:04x}'.format(
-            int(width)) + '{:04x}'.format(int(height)) + '0000')
-        return data[8:]
-
-    def get_save_preview_pic(self, width, height, file):
-        with open(file, 'wb') as f:
-            p = self.get_preview_pic(width, height)
-            f.write(p)
-
-
-class doc_parser:
-    def __init__(self, filename=None):
-        if filename is None:
-            filename = 'wolfprot.json'
-        with open(filename) as root:
-            self.root = json.load(root)
-
-    def _collect_attr(self, src, attr=None):
-        if attr is None:
-            return src
-
-        if type(src) == dict:
-            d = dict()
-            for i in attr:
-                d[i] = src[i]
-        elif type(src) == list:
-            d = list()
-            for i in src:
-                d.append(self._collect_attr(i, attr))
-        else:
-            d = src
-        return d
-
-    def _collect_rec(self, data, attr=None, deps=0, curr_deps=0, function=None):
-        if deps == curr_deps:
-            d = self._collect_attr(data, attr)
-        else:
-            curr_deps += 1
-            if type(data) == dict:
-                d = dict()
-                for i in data:
-                    d[i] = self._collect_rec(data[i], attr, deps, curr_deps, self)
-            elif type(data) == list:
-                d = list()
-                for i in data:
-                    d.append(self._collect_rec(i, attr, deps, curr_deps, self))
-            else:
-                d = data
-        return d
-
-    def _get_param_list(self, value=None):
-        p = self.root['parameterlist']
-        attr = 'idx' if type(value) is int else 'name'
-        for i in p:
-            if i[attr] == value:
-                i['comment'] = i['name']
-                return i
-        return None
-
-    def get_window_types(self):
-        return self._get_param_list('Window type')
-
-    def get_cmd_obj_by_name(self, categorie=None, name=None, attr=None, get=True):
-        t = 'SET' if get is False else 'GET'
-        c = self.root[t]['categories']
-        if categorie:
-            c = c[categorie]
-
-        if categorie is None:
-            return self._collect_rec(c, attr, deps=2)
-
-        if name is None:
-            return self._collect_rec(c, attr, deps=1)
-
-        return self._collect_attr(c[name], attr)
-
-    def get_cmd_obj_by_cmd(self, cmd, get=True):
-        c = self.get_cmd_obj_by_name(None, None, ('command',), get)
-        cat = [(x, y) for x in c for y in c[x] if c[x][y]['command'] == cmd]
-        if len(cat):
-            item = cat.pop()
-            return {'category': item[0], 'sub-category': item[1],
-                    'obj': self.get_cmd_obj_by_name(item[0], item[1], None, get)}
-        return None
-
-    def get_request(self, categorie, name, variant=0, req_param=None, get=True):
+    def login(self, access_level: str = 'Admin', password: str = 'Password', admin_pin: str = ''):
         """
-
-        Returns
-        -------
-        object
+        access_level = 'None', 'User', 'Admin', 'Annotation', 'Viewer App'
         """
-        c = self.get_cmd_obj_by_name(categorie, name, None, get)
-        var = c['variations']
-        cmd = c['command']
-        pkg = list()
-        if len(var) <= variant:
-            raise ValueError('variant out of range')
-        else:
-            i = var[variant]
-            ext_len = None
-            ext_hdr = None
-            req = i['request']
-            paramlenlen = req['parameterLengthLength']
-            if paramlenlen == 2:
-                ext_len = 1
-            elif paramlenlen == 4:
-                ext_hdr = 1
+        login_access_level = {'None': 0x00,
+                              'User': 0x01,
+                              'Admin': 0x02,
+                              'Annotation': 0x03,
+                              'Viewer': 0x04,
+                              'App': 0x05
+                              }
 
-            param = req['parameters']
-            if len(param) == 0:
-                data = None
-            else:
-                data = bytes()
-                for i in param:
-                    val = None
-                    id = i.get('parameterID', None)
-                    if id:
-                        i = self._get_param_list(id)
-                    param_len = i['length']
-                    comment = i['comment']
-                    try:
-                        value = req_param[comment]
-                    except:
-                        print(req_param)
-                        print(param)
-                        raise
+        if access_level not in login_access_level:
+            raise KeyError(f'Login level {access_level} not supported: {login_access_level.keys()}')
 
-                    if type(value) == int:
-                        if param_len == 2:
-                            val = bytes.fromhex('{:04x}'.format(value))
-                        elif param_len == 1:
-                            val = bytes.fromhex('{:02x}'.format(value))
-                        elif param_len == 4:
-                            val = bytes.fromhex('{:08x}'.format(value))
-                        elif param_len == 0:
-                            val = bytes(str(value).encode('utf-8'))
-                    elif type(value) == str:
-                        val = bytes(value.encode('utf-8'))
-#                        if len(value) < 0xFF:
-#                            val_len = bytes.fromhex('{:02x}'.format(len(value)))
-#                        else:
-#                            val_len = bytes.fromhex('{:04x}'.format(len(value)))
-                    elif type(value) == bytes:
-                        val = value
-                    else:
-                        val = None
-                    if val:
-                        data += val
-            p = parser.Parser()
-            t = 'GET' if get is True else 'SET'
-            pkg.append(p.generate_package(t, cmd, data, ext_hdr, ext_len))
-        return pkg
-
-    def get_response(self, raw_package, variant=0):
-        c = self.get_cmd_obj_by_cmd(raw_package['cmd'].hex().upper(),
-                                    get=True if raw_package['type'] == 'GET' else False)
-        if c is None:
-            return None
-        category = c['category']
-        sub = c['sub-category']
-        c = c['obj']
-
-        var = c['variations']
-        cmd = c['command']
-#        level = c['userlevel']
-        raw = raw_package['data']
-        pkg = list()
-#        print(f'resp raw: {raw}')
-        if len(var) > variant:
-            i = var[variant]
-
-            req = i['reply']
-            param = req['parameters']
-
-            if len(param) != 0:
-                start = 0
-                end = 0
-
-                rm_param = list()
-                data_common = dict()
-                if cmd == 'CBBA':  # Window 2 command
-                    f = ('Window reference width', 'Window reference height')
-                    rm_param = [i for i in param if i['comment'] in f]
-                    print(raw[start:])
-
-                for i in rm_param:
-                    param_len = i['length']
-                    comment = i['comment']
-                    if param_len:
-                        end = start + param_len
-                        data_common[comment] = int(raw[start:end].hex(), 16)
-#                        print(f'{comment}: {data_common[comment]}')
-                        prev_val = data_common[comment]
-                        start = end
-
-                if len(data_common):
-                    pkg.append(data_common)
-
-                # I expect it is a repeating block when the raw package
-                # size is not finish after first iteration over the parameters
-                while end < len(raw):
-#                    print(f'end: {end}, rawlen: {len(raw)}')
-                    prev = None
-                    data = dict()
-                    for i in param:
-
-                        if i in rm_param:
-                            continue
-
-                        if start >= len(raw):
-                            # add string value when previous value was the length value with data value zero
-                            if prev and prev['comment'].find(comment) != -1 and prev_val == 0:
-                                comment = i['comment']
-                                data[comment] = bytearray()
-                            break
-                        param_id = i.get('parameterID', None)
-                        if param_id:
-                            i = self._get_param_list(param_id)
-                        param_len = i['length']
-                        comment = i['comment']
-                        if param_len:
-                            end = start + param_len
-                            data[comment] = int(raw[start:end].hex(), 16)
-                            prev_val = data[comment]
-#                            print(f'1:{comment}: {prev_val} len: {param_len}')
-                            start = end
-                        else:
-                            # str_len + str
-                            if prev and prev['comment'].find(comment) != -1:
-                                # prev_val = string length
-                                end = start + prev_val
-#                                print(f'start: {start}, end: {end}')
-                                data[comment] = raw[start:end]
-#                                print(f'prev: {prev["comment"]}: {prev_val}')
-#                                print(f'2:{comment}: {data[comment]} len: {param_len}')
-                                start = end
-                            else:
-                                data[comment] = raw
-#                                print(f'3:{comment}: {data[comment]} len: {param_len}')
-                                end = len(raw)
-                        prev = i
-                    pkg.append(data)
-        return category, sub, pkg
+        param = {'Access level': login_access_level[access_level],
+                 'Password length': len(password),
+                 'Password': password,
+                 'PIN length. This is an optional parameter and is only required if '
+                 '<b>Admin Remote PIN</b> is set to <b>PIN required</b> and <b>Access '
+                 'level</b> is set to <b>Admin</b>': len(admin_pin),
+                 'PIN. This is an optional parameter and is only required if '
+                 '<b>Admin Remote PIN</b> is set to <b>PIN required</b> and <b>Access level</b> '
+                 'is set to <b>Admin</b>': admin_pin}
+        self.send_package('System', 'Login', 0, param, 'SET')
 
 
 def main():
@@ -304,23 +95,26 @@ def main():
     description = """Simple programm to send and receive wolfprot commands
     """
     parser = argparse.ArgumentParser(description=dedent(description))
-    parser.add_argument('host',
+    parser.add_argument('-i',
+                        '--IPv4',
+                        action='store',
+                        dest='host',
                         help='ip address (ipv4)')
     parser.add_argument('-l',
                         '--userlevel',
                         action='store',
                         dest='level',
                         help='"Admin", "User", "None", "Annotation", "Viewer", "App"')
-    parser.add_argument('-u',
-                        '--userlevel-password',
+    parser.add_argument('-p',
+                        '--password',
                         action='store',
-                        dest='upwd',
-                        help='userlevel password')
+                        dest='pwd',
+                        help='password')
     parser.add_argument('-a',
-                        '--admin-password',
+                        '--admin-pin',
                         action='store',
-                        dest='apwd',
-                        help='admin password')
+                        dest='pin',
+                        help='Admin Pin')
     parser.add_argument('-c',
                         action='store',
                         dest='cmd',
@@ -332,130 +126,129 @@ def main():
     args = parser.parse_args()
 
     cmd = args.cmd
-    apwd = args.apwd if args.apwd else 'Password'
-    upwd = args.upwd if args.upwd else None
+    pwd = args.pwd if args.pwd else 'Password'
     level = args.level if args.level else 'Admin'
     wp_file = args.wp_file if args.wp_file else None
+    pin = args.pin if args.pin else ''
 
-    try:
-        doc = doc_parser(wp_file)
-    except:
-        print(f'doc file {wp_file} not found')
-        doc = None
+    if wp_file is None and args.cmd is None:
+        raise BaseException('no wolfprot file or wolfprot command selected')
 
-    if doc is None and args.cmd is None:
-        return
-
-    cb1 = Cynap(args.host, 1, upwd, level, apwd)
+    cb1 = Cynap(args.host, 1, wp_file, pwd, level, pin)
     print(f'HOST: {args.host}')
-    print(f'PW: {apwd}')
+    print(f'PW: {pwd}')
 
     if args.cmd:
         data_ = bytes.fromhex(''.join(''.join(cmd.casefold().split(sep='0x')).split()))
         ret = cb1.raw_package(bytearray(data_))
-        if doc:
-            print(doc.get_response(ret))
-    else:
-        if doc:
-            while True:
-                print('Press q to exit')
-                print('SET (0)')
-                print('GET (1)')
+        print(cb1.doc.get_response(ret))
+        return
 
-                d = input(' mode: ')
-                get_cmd = True
+    while True:
+        print('Press q to exit')
+        print('SET (0)')
+        print('GET (1)')
 
-                if d == 'q':
-                    return
-                elif d == '0':
-                    get_cmd = False
+        d = input(' mode: ')
+        direction = 'SET'
 
-                print('SEARCH CMD(0)')
-                print('SEARCH KEYWORD (1)')
-                print('SELECT BY CMD (2)')
-                print('SELECT BY CATEGORY (3)')
+        if d == 'q':
+            return
+        elif d == '1':
+            direction = 'GET'
 
-                d = input(' mode: ')
-                if d == '0' or d == '2':
-                    cmd = input('cmd:')
-                    resp = doc.get_cmd_obj_by_cmd(cmd.upper(), get_cmd)
-                    if resp is None:
-                        print(' command unknown')
-                        continue
-                    elif d == '0':
-                        print(f' {resp}')
-                        continue
-                    else:
-                        category = resp['category']
-                        sub = resp['sub-category']
-                elif d == '1':
-                    keyword = input('keyword:')
-                    c = doc.get_cmd_obj_by_name(None, None, {'command', }, get_cmd)
-                    print(keyword)
-                    cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if
-                           x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
-                    for i in cat:
-                        print(i)
-                    continue
-                elif d == '3':
-                    cat_list = list()
-                    for i, k in enumerate(doc.get_cmd_obj_by_name(None, None, {}, get_cmd)):
-                        cat_list.append(k)
-                        print(f' {k} ({i})')
-                    print('\nGET:') if get_cmd else print('\nSET')
-                    d = input('category Nr: ')
-                    if d == 'q':
-                        return
-                    category = cat_list[int(d, 10)]
+        print('SEARCH CMD(0)')
+        print('SEARCH KEYWORD (1)')
+        print('SELECT BY CMD (2)')
+        print('SELECT BY CATEGORY (3)')
 
-                    cat_list = list()
-                    for i, k in enumerate(doc.get_cmd_obj_by_name(category, None, {}, get_cmd)):
-                        cat_list.append(k)
-                        print(f' {k} ({i})')
-                    print(f'\n{category}')
-                    d = input('sub-category Nr: ')
-                    if d == 'q':
-                        return
-                    sub = cat_list[int(d, 10)]
+        d = input(' mode: ')
+        if d == '0' or d == '2':
+            cmd = input('cmd:')
+            resp = cb1.doc.get_element_by_cmd(direction, cmd.upper())
+            print(resp)
+            if resp is None:
+                print(' command unknown')
+                continue
+            elif d == '0':
+                print(f' {resp}')
+                continue
+            else:
+                resp = resp.popitem()
+                category = resp[0]
+                resp = resp[1].popitem()
+                sub = resp[0]
+        elif d == '1':
+            keyword = input('keyword:')
+            c = cb1.doc.get_element_by_name(direction, None, None, {'command', })
+            print(keyword)
+            cat = [(x, y, c[x][y]['command']) for x in c for y in c[x] if
+                   x.lower().find(keyword) >= 0 or y.lower().find(keyword) >= 0]
+            for i in cat:
+                print(i)
+            continue
+        elif d == '3':
+            elements = cb1.doc.get_element_by_name(direction, None, None, {})
+            cat_list = list()
+            [cat_list.append(i) for i in elements if i not in cat_list]
 
-                c = doc.get_cmd_obj_by_name(category, sub, None, get_cmd)
-                var = c['variations']
-                attr = dict()
-                var_nr = '0'
-                if len(var) > 1:
-                    var_nr = input(f'variant (max. {len(var) - 1}):')
+            for i, k in enumerate(cat_list):
+                print(f'{k}: {i}')
 
-                i = var[int(var_nr, 10)]
-                param = i['request']['parameters']
-                for j in param:
-                    id = j.get('parameterID', None)
-                    if id:
-                        j = doc._get_param_list(id)
-                    print(f' {j["values"]}')
+            print(f'\n{direction}')
+            d = input('category Nr: ')
+            if d == 'q':
+                return
+            category = cat_list[int(d, 10)]
+            cat_list = list()
+            [cat_list.append(j) for i in elements for j in elements[i] if i == category]
+            print(f'\n{category}')
+            for i, k in enumerate(cat_list):
+                print(f'{k}: {i}')
+            print(f'\n{category}')
+            d = input('sub-category Nr: ')
+            if d == 'q':
+                return
+            sub = cat_list[int(d, 10)]
 
-                    param_len = j['length']
-                    comment = j['comment']
-                    for a in j['values']:
-                        print(f' {a["value"]} <- {a["comment"]}')
+        c = cb1.doc.get_element_by_name(direction, category, sub)
+        var = c[category][sub]['variations']
+        attr = dict()
+        var_nr = '0'
+        if len(var) > 1:
+            var_nr = input(f'variant (max. {len(var) - 1}):')
 
-                    i = input(f'{comment}: ')
-                    if d == 'q':
-                        return
+        i = var[int(var_nr, 10)]
+        param = i['request']['parameters']
+        for j in param:
+            param_id = j.get('parameterID', None)
+            if param_id:
+                j = cb1.doc.get_param_list(param_id)
+            print(f' {j["values"]}')
 
-                    if param_len != 0:
-                        attr[comment] = int(i, 16)
-                    else:
-                        attr[comment] = i
+            param_len = j['length']
+            comment = j['comment']
+            for a in j['values']:
+                print(f' {a["value"]} <- {a["comment"]}')
 
-                print(attr)
-                req = doc.get_request(category, sub, int(var_nr, 10), attr, get_cmd)
-                print(req[0].hex())
-                raw = cb1.raw_package(req[0])
-                err_status = cb1.get_error_status()
-                if err_status:
-                    print(f'error status: {err_status}')
-                else:
-                    print(f'resp: {doc.get_response(raw, int(var_nr, 10))}')
+            i = input(f'{comment}: ')
+            if d == 'q':
+                return
+
+            if param_len != 0:
+                attr[comment] = int(i, 16)
+            else:
+                attr[comment] = i
+
+        req = cb1.doc.generate_get_request(category, sub, int(var_nr, 10), attr, direction)
+
+        if args.host:
+            raw = cb1.raw_package(req)
+            err_status = cb1.get_error_status()
+            if err_status:
+                print(f'error status: {err_status}')
+            else:
+                print(f'resp: {cb1.doc.generate_get_response(raw, int(var_nr, 10))}')
     return
 
 
