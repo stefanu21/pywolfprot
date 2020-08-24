@@ -11,10 +11,11 @@ def readme():
 setup(name='pywolfprot',
       version='0.2',
       description='send and receive wolfvision wolfprot commands',
+      long_description_content_type="text/markdown",
       long_description=readme(),
       classifiers=[
           'Development Status :: 3 - Alpha',
-          'License :: OSI Approved :: GPLv2 License',
+          'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
           'Programming Language :: Python :: 3',
           'Intended Audience :: Developers',
           'Topic :: Software Development :: Build Tools',
