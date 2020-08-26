@@ -9,7 +9,7 @@ def readme():
 
 
 setup(name='pywolfprot',
-      version='0.3',
+      version='0.4',
       description='send and receive wolfvision wolfprot commands',
       long_description_content_type="text/markdown",
       long_description=readme(),
