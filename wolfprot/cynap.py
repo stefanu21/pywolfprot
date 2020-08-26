@@ -135,6 +135,9 @@ def main():
         raise BaseException('no wolfprot file or wolfprot command selected')
 
     cb1 = Cynap(args.host, 1, wp_file, pwd, level, pin)
+    if cb1.connect() is False:
+        raise ConnectionError(f'No connection to Host {args.host}')
+
     print(f'HOST: {args.host}')
     print(f'PW: {pwd}')
 
